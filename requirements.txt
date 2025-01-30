@@ -1,0 +1,91 @@
+import os
+import random
+import string
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Filters, ContextTypes
+
+# Replace with your actual bot token and admin ID
+BOT_TOKEN = '7938419300:AAGWFEHeqcZdB7fSq4yfGDDYQolNnVhbZdE'
+ADMIN_ID = '@Professor_hydra'
+
+# User data storage (you may want to use a database for production)
+user_data = {}
+redeem_codes = {}
+referral_points = {}
+
+def generate_redeem_code(length=8):
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text('Welcome! Use /compress to compress files.')
+
+async def compress_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    if user_id not in user_data:
+        user_data[user_id] = {'compressions': 0, 'is_premium': False, 'points': 0}
+
+    if user_data[user_id]['compressions'] < 5 or user_data[user_id]['is_premium']:
+        await update.message.reply_text('Please send me a video or image file to compress.')
+        return
+    else:
+        await update.message.reply_text('You have used your free compressions. Please purchase premium or use a redeem code.')
+
+async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    file = update.message.document
+
+    if file:
+        # Increment compression count
+        user_data[user_id]['compressions'] += 1
+        
+        # Here you would add your file compression logic
+        # For demonstration purposes, we'll just send back the original file.
+        await context.bot.send_document(chat_id=user_id, document=file.file_id)
+        
+        await update.message.reply_text(f'File compressed! You have {5 - user_data[user_id]["compressions"]} compressions left.')
+
+async def redeem_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if str(update.message.from_user.id) != ADMIN_ID:
+        await update.message.reply_text('You are not authorized to use this command.')
+        return
+
+    code = generate_redeem_code()
+    redeem_codes[code] = 1  # 1 day of premium
+    await update.message.reply_text(f'Redeem code generated: {code}')
+
+async def use_redeem_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    code = context.args[0] if context.args else None
+
+    if code in redeem_codes:
+        user_data[user_id]['is_premium'] = True
+        await update.message.reply_text(f'Redeem code accepted! You now have premium access for 1 day.')
+        del redeem_codes[code]  # Remove used code
+    else:
+        await update.message.reply_text('Invalid redeem code.')
+
+async def refer_friend(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    referred_user = context.args[0] if context.args else None
+
+    if referred_user:
+        # Increment points for both the referrer and the referred user
+        referral_points[user_id] = referral_points.get(user_id, 0) + 1
+        await update.message.reply_text(f'Thank you for referring {referred_user}! You now have {referral_points[user_id]} points.')
+
+async def main() -> None:
+	    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("compress", compress_file))
+    app.add_handler(CommandHandler("redeem", redeem_code))
+    app.add_handler(CommandHandler("use_redeem", use_redeem_code))
+    app.add_handler(CommandHandler("refer", refer_friend))
+    app.add_handler(MessageHandler(Filters.document.mime_type("video/mp4") | Filters.document.mime_type("image/jpeg"), handle_file))
+
+    # Start polling
+    await app.run_polling()
+
+if __name__ == '__main__':
+    import asyncio
+    asyncio.run(main())
